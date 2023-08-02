@@ -316,7 +316,7 @@ print(son.house)    --> nil
 详细可以参考[index和元表如何工作的](https://blog.csdn.net/xocoder/article/details/9028347)
 
 ### __newindex
-`__newindex`规定了对表的键值进行更新的方法
+`__newindex`规定了对表设置新索引时候的行为，也就是对设置不存在的索引时候的拦截操作。
 + 当给表一个空缺的键时，如果规定了__newindex原方法，则会向__newindex定义的子表中插入对应的键值，而不会改变初始表的内容
 + 当写入的是一个已有的键，那么会直接改变初始表的内容
 

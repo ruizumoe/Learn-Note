@@ -2,6 +2,8 @@
 package.path = package.path..";?.lua"
 require("Week1.code.module_code.exportTable")
 
-x = module.fun1()
+x = module:fun1()
 print(x)
 print(module.func3())
+module.method1(12, 22)
+print(module.cont)
