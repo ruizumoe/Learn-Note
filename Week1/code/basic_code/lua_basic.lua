@@ -102,7 +102,13 @@ tab5[7] = "3"
 tab5[7] = "3"
 print("tab5的长度", #tab5)
 
-
+tab6 = { 1, nil, 2, nil, nil, nil, nil }
+-- tab6[1] = "1"
+-- tab6[2] = nil
+-- tab6[3] = "2"
+-- tab6[4] = "3"
+-- tab6[5] = "3"
+print(table.getn(tab6))
 
 -- 字符串
 
