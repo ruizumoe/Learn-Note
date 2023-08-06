@@ -1,18 +1,19 @@
-function Create(n)
-    local function foo1()
-        print(n)
-    end
-    local function foo2()
-        n = n + 10
-    end
-    return foo1, foo2
+local table1 = {}
+local s = ""
+
+local c = 1
+for i = 1, 1024, 1
+do
+
+    s = s .. c
+    c = c + 1
+    c = c % 10
 end
 
-f1,f2 = Create(2015)
-f1() -- 打印2015
+for i = 1, 3, 1
+do
+    table.insert(table1, s)
+end
 
-f2()
-f1() -- 打印2025
-
-f2()
-f1() -- 打印2035
+a = table.concat(table1, '::::::')
+print(a)

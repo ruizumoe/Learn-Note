@@ -237,3 +237,12 @@ for k ,v in pairs(new_table)
 do
     print(k, v)
 end
+
+
+local table_num_test = { 3}
+for k,v in pairs(table_num_test)
+do
+    print(k)
+    print(type(k))
+    print(type(v))
+end
