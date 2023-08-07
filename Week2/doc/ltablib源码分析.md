@@ -47,6 +47,9 @@ static void stack_init (lua_State *L1, lua_State *L) {
 
 ### 根据idx寻址
 
+在虚拟机栈中，每次使用函数时，都会在stack栈中使用t->base作为当前函数的栈底，t->top用于指示当前函数可用的存储数据位置。
+由于函数可能有多个参数，调用参数的方式不一定是顺序的，因此需要通过t->base + idx或t->top - idx的方式去获取不同的参数内容。
+
 ```c
 static TValue *index2adr (lua_State *L, int idx) {
   if (idx > 0) {

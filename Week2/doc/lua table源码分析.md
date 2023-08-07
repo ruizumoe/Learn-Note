@@ -106,7 +106,7 @@ Table *luaH_new (lua_State *L, int narray, int nhash) {
 ```
 
 
-注意，为hash表分配空间的时候，为了减少冲冲突，其容量为$ 2^{ceil(log_2(nhash))}$
+注意，为hash表分配空间的时候，为了减少冲冲突，其容量为$2^{ceil(log_2(nhash))}$
 
 ### table的删除
 
@@ -284,11 +284,12 @@ static TValue *newkey (lua_State *L, Table *t, const TValue *key) {
 
 ### table的遍历
 
-在table中`ltablib.c`会设置对应的遍历api来调用`luaH_next`, 从而实现table的遍历，其中参数key是遍历时候的栈帧内容，其会输出需要检测的数据位置，并获得下一次要检测的数据位置，当返回值为1时，则会继续创建遍历的栈帧，然后继续遍历。
+在table中`ltablib.c`会设置对应的遍历api来调用`luaH_next`, 从而实现table的遍历，其中参数key是遍历时候的栈帧地址，每次遍历时都会将索引和值压入栈中以便在调用函数的获取，并获得下一次要检测的数据位置，当返回值为1时，则会继续创建遍历的栈帧，然后继续遍历。
 
 ```c
-// 其中key为lua栈中的定义的遍历起始位置，一开始，key为null
-// 由于每次遍历实际是一个将检查命令压入lua栈帧，因此每次检测到有非Nil值就会返回内容以及下一个键值对的k和v，范围值为1表示后续还有内容需要进行检测
+// 其中key为lua栈中的定义的遍历起始位置，一开始key为null
+// 返回值为1表示后续还有内容需要进行检测
+
 int luaH_next (lua_State *L, Table *t, StkId key) {
   int i = findindex(L, t, key);  /* find original element */
   for (i++; i < t->sizearray; i++) {  /* try first array part */
@@ -328,7 +329,7 @@ int luaH_next (lua_State *L, Table *t, StkId key) {
 以上内容的核心思想就是：**保证空间利用率在50%以上**，如果原定的空间太小，则需要扩容；空间太大，需要缩容，此时会造成空间震荡。
 
 ```c
-// 经过resize，array的利用率大于50%，hasharray一定时比实际空间大的一个2次幂
+// 经过resize，array的利用率大于50%，hashnode一定时比实际空间大的一个2次幂
 static void resize (lua_State *L, Table *t, int nasize, int nhsize) {
   int i;
   int oldasize = t->sizearray;
