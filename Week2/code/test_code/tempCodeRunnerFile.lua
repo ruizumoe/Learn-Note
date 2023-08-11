@@ -1,19 +1,11 @@
-local table1 = {}
-local s = ""
 
-local c = 1
-for i = 1, 1024, 1
+local a = "test1"
+
+local table2 = {
+    a = 20
+}
+
+for k, v in pairs(table2)
 do
-
-    s = s .. c
-    c = c + 1
-    c = c % 10
+    print(k, v)
 end
-
-for i = 1, 3, 1
-do
-    table.insert(table1, s)
-end
-
-a = table.concat(table1, '::::::')
-print(a)
