@@ -1,0 +1,3 @@
+# LuaEnv实例化
+
+如果要在CS代码中执行lua代码，则需要先实例化LuaEnv环境，这个环境加载了所有要读取和访问Lua代码的方法。其中最主要的两个为实例化`ObjectTranslator`转化类，以及lua
