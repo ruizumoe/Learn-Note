@@ -2,6 +2,18 @@
 
 Xlua调用CS也需要保证对应的CS代码加载了xlua的虚拟环境，保证lua代码能够被Unity能够被正常调用。
 
+虽然说是通过Lua代码调用CS代码，但实际也需要在CS代码中通过DoString的方式执行调用CS代码的Lua代码。
+
+```cs
+// 在CS代码中加载需要执行的Lua代码，其中script为后续调用CS代码的lua文件。
+void Start()
+{
+    luaenv = new LuaEnv();
+    luaenv.DoString(script);
+}
+```
+
+
 ## 新建GameObject对象
 
 在Lua中由于没有new方法，因此可以直接通过调用接口的方式去实例化一个GO对象。同时通过不同的构造参数，可以实例化不同的GO对象
