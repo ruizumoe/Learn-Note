@@ -413,7 +413,163 @@ public static void SetCSTable(RealStatePtr L, Type type, int cls_table)
 
 > 该方法只是静态调用（静态类），对象内容的调用不是走该函数。
 
+### Xlua静态调用CS的方法
 
-## Xlua是如何调用CS代码
+Xlua调用CS相关代码有两种方式，分别是
++ 通过**反射**的方法来调用CS代码；
++ 通过**生成适配**代码的方式进行调用（定义[LuaCallCSharp]，然后生成对应的CSharp代码）
 
+#### 调用生成的适配代码
+
+如果Lua代码想要调用自定义的CS代码，则需要在CS的类或者方法上写下[LuaCallCSharp]，然后在工具栏`XLua->Generate`生成适配代码，存储在`Gen`目录中
+
+以Unity的Debug函数为例，其整体结构大致如下
+```C#
+// UnityEngineDebugWrap.cs
+public class UnityEngineDebugWrap
+{
+     public static void __Register(RealStatePtr L)
+     {
+          // 从Translator池中找出L线程对应的translator
+          ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+          System.Type type = typeof(UnityEngine.Debug);
+          // 注册类自己的成员变量和方法等
+          // 规定当前要适配的代码有几个成员变量和成员函数， 其中的int分别是meta_cnt, method_cnt, getter_cnt, setter_cnt
+          Utils.BeginObjectRegister(type, L, translator, 0, 0, 0, 0);
+          Utils.EndObjectRegister(type, L, translator, null, null,null, null, null);
+          // 注册类方法等即Static
+          // 规定当前注册的类有17个classField(17个可以静态调用的方法或成员), 3个静态getter, 1个静态setter
+          Utils.BeginClassRegister(type, L, __CreateInstance, 17, 3, 1);
+          ...
+          //注册一个名为Log的回调，当lua代码调用Log时，会调用后续代码中定义的函数`_m_Log_xlua_st_`, 而该函数定义了对CS中Debug.log方法的调用
+          Utils.CLS_IDX(L, Utils.CLS_IDX, "Log", _m_Log_xlua_st_);
+          ...
+          Utils.EndClassRegister(type, L, translator);
+     }
+
+
+    // 当Lua调用Log方法时，会调用进入该函数
+    [MonoPInvokeCallbackAttribute(typeof(LuaCSFunction))]
+    static int _m_Log_xlua_st_(RealStatePtr L)
+    {
+        //根据Log方法的参数数量来生成各种调用
+       try {
+          ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+          // 从虚拟机栈的栈顶获取Log的参数数量
+          int gen_param_count = LuaAPI.lua_gettop(L);
+          
+          // 如果log的参数为1
+          if(gen_param_count == 1&& translator.Assignable<object>(L, 1))
+          {
+              object _message = translator.GetObject(L, 1, typeof(object));
+              UnityEngine.Debug.Log( _message );
+              return 0;
+          }
+          // 如果log的参数为2
+          if(gen_param_count == 2&& translator.Assignable<object>(L, 1)&& translator.Assignable<UnityEngine.Object>(L, 2))
+          {
+              object _message = translator.GetObject(L, 1, typeof(object));
+              UnityEngine.Object _context = (UnityEngine.Object)translator.GetObject(L, 2, typeof(UnityEngine.Object));
+              UnityEngine.Debug.Log( _message, _context );
+              return 0;
+          }
+ 
+      } catch(System.Exception gen_e) {
+          return LuaAPI.luaL_error(L, "c# exception:" + gen_e);
+      }
+      return LuaAPI.luaL_error(L, "invalid arguments to UnityEngine.Debug.Log!");
+   }
+}
+```
+
+##### BeginClassRegister
+
+该方法实际是用于注册类中定义的静态方法和静态变量，该方法主要目的是创建四个表：
++ `cls_table` : 用于Lua代码调用的table，在当前例子中 cls_table将被定义为CS.UnityEngine.Debug，
++ `meta_table` : cls_table的元表
++ `getter_table` 
++ `setter_table`
+
+```CS
+public static void BeginClassRegister(Type type, RealStatePtr L, LuaCSFunction creator, int class_field_count,
+    int static_getter_count, int static_setter_count)
+{
+    ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+    // 创建cls_table表，该表总共有class_field_count项内容
+    LuaAPI.lua_createtable(L, 0, class_field_count);
+    // cls_table[UnderlyingSystemType]=type，用于typeof方法访问获取类型
+    LuaAPI.xlua_pushasciistring(L, "UnderlyingSystemType");
+    translator.PushAny(L, type);    // 获取CS代码中type的内容，也就是 typeof(Debug.log）放在栈顶，
+    
+    LuaAPI.lua_rawset(L, -3);   // 等价于 L[top-3][top-2] = top 也就是将top-2作为cls_table的一个字段，然后将type作为值赋值过去
+
+    int cls_table = LuaAPI.lua_gettop(L);     // 获得栈顶元素索引，即cls_table索引
+    // CS.UnityEngine.Debug = cls_table
+    // CS[type] = cls_table
+    SetCSTable(L, type, cls_table);
+
+    // 创建meta_table = {__call = creator}
+    LuaAPI.lua_createtable(L, 0, 3);
+    int meta_table = LuaAPI.lua_gettop(L);
+    if (creator != null)
+    {
+        LuaAPI.xlua_pushasciistring(L, "__call");
+        LuaAPI.lua_pushstdcallcfunction(L, creator);
+        LuaAPI.lua_rawset(L, -3);
+    }
+    // getter_table = {}
+    if (static_getter_count == 0)
+    {
+        LuaAPI.lua_pushnil(L);
+    }
+    else
+    {
+        LuaAPI.lua_createtable(L, 0, static_getter_count);
+    }
+    // setter_table = {}
+    if (static_setter_count == 0)
+    {
+        LuaAPI.lua_pushnil(L);
+    }
+    else
+    {
+        LuaAPI.lua_createtable(L, 0, static_setter_count);
+    }
+    // setmetetable(cls_table, mete_table)
+    LuaAPI.lua_pushvalue(L, meta_table);
+    LuaAPI.lua_setmetatable(L, cls_table);  // 将栈顶的metaTable设置为cls_table的元表
+}
+```
+调用完`BeginClassRegister`后，栈上的数据为如下
+![Alt text](image.png)
+
+
+在上面我们描述了SetCSTable函数，该函数将cls_table设置到CS.UnityEngine.GameObject和CS[type]下，也就是说，未来在Lua中直接调用相关的方法，会从CS表中寻找我们当前注册的getter, setter等方法，从实现了Lua调用cs代码。
+
+
+##### 将方法注册带对应的表上
+
+```cs
+public static void RegisterFunc(RealStatePtr L, int idx, string name, LuaCSFunction func)
+{
+    //这里的idx指的是就是CLS_IDX,就是cls_table,也就是SetCSTable设置的表
+    idx = abs_idx(LuaAPI.lua_gettop(L), idx);
+    //压入方法名
+    LuaAPI.xlua_pushasciistring(L, name);
+    //压入C#委托指针
+    LuaAPI.lua_pushstdcallcfunction(L, func);
+    // v = L[idx];  v[top -2] = top -1 
+    LuaAPI.lua_rawset(L, idx);
+}
+```
+
+根据上图我们可以知道对应的索引
+```cs
+public const int CLS_IDX = -4;
+public const int CLS_META_IDX = -3;
+public const int CLS_GETTER_IDX = -2;
+public const int CLS_SETTER_IDX = -1;
+```
+
+##### 结束类方法的注册 `EndClassRegister`
 
