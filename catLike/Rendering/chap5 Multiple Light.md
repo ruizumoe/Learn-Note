@@ -32,11 +32,11 @@
 
 # 混合光源
 
-直接在叠加Pass中使用点光源的方向会导致平行光出现问题，因此可以使用着色器变体来区分平行光和点光`#pragma multi_compile DIRECTIONAL POINT`
+直接在叠加Pass中使用点光源的方向会导致平行光出现问题，因此可以使用着色器变体来区分平行光和点光`#pragma multi_compile DIRECTIONAL POINT SPOT`
 
 然后在获得光源方向的时候 使用
 ```hlsl
-#if defined(POINT)
+#if defined(POINT) || defined(SPOT)
     light.dir = normalize(_WorldSpaceLightPos0.xyz - worldPos);
 #else
     light.dir = _WorldSpaceLightPos0.xyz;
@@ -44,3 +44,23 @@
 ```
 
 > 在SRP中 采用的是在C#中将不同光源的数据预先计算好，包括光源信息位置，方向，等数据，存放在不同的数组中，传递给着色器调用
+>
+
+## 光源 Cookies  
+
+cookies是一个对光源进行遮罩的内容，其需要将贴图的类型设置为Cookies，然后在光源上配置。
+
+聚光灯Cookies需要保证边缘衰减至0
+平行光Cookies必须实现无缝平铺
+点光源Cookies需要包含在一个球体上，一般通过正方体贴图实现
+
+> 在SRP中 点光源就是通过一个小立方体来实现的
+ 
+
+# 球谐函数
+
+球谐函数通过将光线拆分为多个频带，描述了来自各个方向的环境光照（低频信息）。Unity常用的L2光照就是3个颜色通道 * 3阶SH 共9个参数来描述环境光。
+
+物体在预计算的SH光照场景中移动旋转，只需要将其法线代入SH系数进行计算，就可以得到该点的环境光照。
+
+光照探针、光照贴图、天空盒环境光都是使用球谐函数将光源信息记录下得到的内容。
