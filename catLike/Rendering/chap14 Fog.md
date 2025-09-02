@@ -91,3 +91,104 @@ float3 fogColor = 0;
 color.rgb = lerp(fogColor, color.rgb, saturate(unityFogFactor));
 ```
 
+## 延迟雾效
+
+要实现雾效延迟渲染，需要所有光源全部渲染完毕以后，再加入一个通道来融入雾气。其类似于渲染一个定向光源
+
+### 获取相机纹理
+
+一般简单的添加雾效通道的方法是在相机上添加自定义组件，添加`OnRenderImage`方法，该方法是Unity后处理（Post-Processing）​​ 设计的事件函数，其在在摄像机完成场景渲染后、最终图像输出到屏幕前被调用。
+
+> 该方法必须挂在到Camera对象上才有效，Unity会遍历场景中的Camera组件，检查是否有OnRenderImage方法，且只有正在渲染的相机才会除法
+
+```cs
+// source 摄像机渲染完成的原始图像
+// destination 处理后图像的目标位置
+void OnRenderImage (RenderTexture source, RenderTexture destination) {
+    // 
+    Graphics.Blit(source, destination);
+}
+```
+
+**该方法是Built-in Render Pipeline​自带方法**，URP (Universal Render Pipeline)​​：需改用 RenderPipelineManager 的 endCameraRendering 事件。（RenderFeature）
+
+
+### 雾效着色器
+
+编写一个雾效着色器，将相机渲染的问题在雾效着色器中重新执行。需要绘制一个覆盖整个屏幕的四边形来覆盖所有内容。
+
+在有了着色器以后，需要得到应用该着色器的材质，因此在CSharp中生成对应的材质
+
+```cs
+[ImageEffectOpaque]     // 在透明物体绘制前执行
+void OnRenderImage (RenderTexture source, RenderTexture destination) {
+		if (fogMaterial == null) {
+			fogMaterial = new Material(deferredFog);
+		}
+		Graphics.Blit(source, destination, fogMaterial);
+}
+```
+
+着色器的顶点着色器输入内容为四边形纹理的顶点数据和UV数据
+
+```hlsl
+Interpolators VertexProgram (VertexData v) {
+    Interpolators i;
+    i.pos = UnityObjectToClipPos(v.vertex);
+    i.uv = v.uv;
+    return i;
+}
+
+float4 FragmentProgram (Interpolators i) : SV_Target {
+    float depth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, i.uv);
+    depth = Linear01Depth(depth);       /
+
+    float3 sourceColor = tex2D(_MainTex, i.uv).rgb;
+    return float4(sourceColor, 1);
+}
+```
+注意虽然没在同一个着色器中，Unity还是可以采样到这个相机贴图中每个片元在世界空间中的原始深度，然后再转化到0-1的裁剪空间（Linear01Depth）
+
+在depth的基础上 乘以远裁剪平面的深度，就可以获得实际的深度视距
+```float viewDistance = depth * _ProjectionParams.z - _ProjectionParams.y;```
+
+此时基于该depth执行雾效处理，就可以获得雾效结果。
+
+
+### 基于距离的雾效
+
+在前向雾效中，默认是使用基于距离的雾效，然后增加对基于深度的雾效的支持。在延迟雾效中，由于本身就有深度信息，因此天生支持基于深度的雾效。此时就需要增加基于距离的雾效。
+
+其原理是从近平面发射光线，如果被物体遮挡，就能得到一个定长光线。使用该定长光线向量叠加相机近平面位置，就能得到渲染表面世界空间中的位置。**但实际我们只需要这个光线的长度。**
+
+在得到光线后，可以通过对每一个像素进行插值的方法，找到每一个像素光线的长度。
+
+一个简单的办法是，基于相机的远平面及其视场角来构建光线。只需要四边各一条光线，得到光线的距离。
+
+>  Camera.CalculateFrustumCorners 方法可以为我们完成这一任务。该方法包含四个参数：第一个是使用的矩形区域，本例中即整个图像；第二个是光线投射的远距离，必须与远平面匹配；第三个参数涉及立体渲染，我们只需使用当前活动的眼睛视角；最后，该方法需要一个三维向量数组来存储光线。因此我们需要同时缓存相机引用和向量数组。
+>
+>  CalculateFrustumCorners 的顺序是左下、左上、右上、右下
+
+获得光线距离后，将数据传递给着色器，就可以开始准备通过纹理的深度来插值得到各个像素光线的长度。
+
+```hlsl
+Interpolators VertexProgram (VertexData v) {
+    ...
+    #if defined(FOG_DISTANCE)
+        i.ray = _FrustumCorners[v.uv.x + 2 * v.uv.y];
+    #endif
+}
+
+float4 FragmentProgram (Interpolators i) : SV_Target {
+    ...
+    #if defined(FOG_DISTANCE)
+    	viewDistance = length(i.ray * depth);
+    #endif
+}
+```
+
+### 天空盒和无雾情况
+
+延迟渲染由于是对整个相机渲染的纹理起作用，因此也会影响天空盒。解决方法就是，当深度接近1时，就将雾效系数设置为1，不处理雾效。
+
+当不开启雾效的是时候默认也需要将雾效系数设置为1。
