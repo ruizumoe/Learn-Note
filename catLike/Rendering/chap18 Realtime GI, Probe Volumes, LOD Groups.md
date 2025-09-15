@@ -42,3 +42,213 @@
 + 不是真正的“全动态”。场景的几何结构（如墙壁位置）不能变，否则需要重新烘焙。
 
 + 动态物体与静态间接光的交互需要依靠光照探针（Light Probes） 和 LPPV，配置稍复杂。
+
+# 光照探针组
+
+具体内容请看 chap16 光照探针内容
+
+# LOD Group
+
+## LOD切换原理
+
+在Unity中，LOD实际使用的是物体在屏幕上所占的相对大小（基于物体包围盒的屏幕空间高度）而非绝对距离。
+
+原理伪代码
+```cs
+void Update()
+    {
+        // 计算当前屏幕相对高度
+        screenRelativeHeight = CalculateScreenRelativeHeight();
+        
+        // 确定当前LOD级别
+        currentLODLevel = lodGroup.GetCurrentLOD();
+    }
+    
+    float CalculateScreenRelativeHeight()
+    {
+        if (targetCamera == null || lodGroup == null)
+            return 0;
+            
+        // 获取LOD组的边界框
+        Bounds bounds = lodGroup.GetWorldSpaceBounds();
+        
+        // 计算边界框在屏幕空间中的大小
+        Vector3 center = bounds.center;
+        Vector3 top = center + Vector3.up * bounds.extents.y;
+        
+        Vector3 screenCenter = targetCamera.WorldToViewportPoint(center);
+        Vector3 screenTop = targetCamera.WorldToViewportPoint(top);
+        
+        // 计算屏幕相对高度
+        return Mathf.Abs(screenTop.y - screenCenter.y) * 2;
+    }
+```
+
+## LOD Group存放内容
+LOD Group 切换的不是 SubMesh，而是整个 Renderer 组件（如 MeshRenderer 或 SkinnedMeshRenderer）。
+
+在项目中，有一个逻辑外壳，该外壳用于存放各个Mono脚本。然后下层是一个统一管理整个渲染模型的父类，父类包括Lod的go和用于存放挂点的内容，每个Lod一个渲染模型(Mesh Render)。
+
++ 逻辑外壳
+    + 渲染模型父类（存放lod Group）
+        + lod1 （存放 meshRender）
+        + lod2 （存放 meshRender）
+        + lod3 （存放 meshRender）
+        + 挂点A 
+        + 挂点xxxxx
+
+## LOD实现切换过渡动画
+
+### 切换材质透明度
+
+在CS代码中，为材质设置透明度, 实现在切换LOD时用协程淡入和淡出实现平滑过渡。
+
+协程执行的时候，获得根据已经执行过的时间，每帧这是不同的透明度，实现淡入淡出
+
+初始状态要设置一个默认的LOD强制开启显示。
+
+```cs
+void Update()
+{
+    int newLODLevel = lodGroup.GetCurrentLOD();
+    
+    if (newLODLevel != currentLODLevel && !isTransitioning)
+    {
+        targetLODLevel = newLODLevel;
+        StartCoroutine(TransitionLODs(currentLODLevel, targetLODLevel));
+    }
+}
+
+IEnumerator TransitionLODs(int fromLOD, int toLOD)
+{
+    isTransitioning = true;
+    float elapsedTime = 0f;
+    
+    // 启用目标LOD（初始透明度为0）
+    EnableLOD(toLOD, 0f);
+    
+    while (elapsedTime < transitionTime)
+    {
+        elapsedTime += Time.deltaTime;
+        float t = elapsedTime / transitionTime;
+        
+        // 淡出旧LOD
+        if (fromLOD >= 0 && fromLOD < lods.Length)
+        {
+            SetLODAlpha(fromLOD, 1f - t);
+        }
+        
+        // 淡入新LOD
+        if (toLOD >= 0 && toLOD < lods.Length)
+        {
+            SetLODAlpha(toLOD, t);
+        }
+        
+        yield return null;
+    }
+    
+    // 完成过渡后禁用旧LOD
+    if (fromLOD >= 0 && fromLOD < lods.Length)
+    {
+        DisableLOD(fromLOD);
+    }
+    
+    // 确保新LOD完全不透明
+    SetLODAlpha(toLOD, 1f);
+    
+    currentLODLevel = toLOD;
+    isTransitioning = false;
+}
+
+void SetLODAlpha(int lodLevel, float alpha)
+{
+    if (lodLevel < 0 || lodLevel >= lods.Length) return;
+    
+    foreach (Renderer renderer in lods[lodLevel].renderers)
+    {
+        if (renderer != null && renderer.enabled)
+        {
+            SetRendererAlpha(renderer, alpha);
+        }
+    }
+}
+
+void SetRendererAlpha(Renderer renderer, float alpha)
+{
+    Material[] mats = renderer.materials;
+    for (int i = 0; i < mats.Length; i++)
+    {
+        Color color = mats[i].color;
+        color.a = alpha;
+        mats[i].color = color;
+    }
+}
+
+
+
+
+
+```
+
+
+### 用Shader做溶解效果
+
+在原本淡入淡出的基础上，增加溶解Shader, 然后在`SetRendererAlpha`函数中，调用设置alpha的时候，设置溶解alpha的值
+
+```cs
+// 修改SetRendererAlpha方法以支持溶解效果
+void SetRendererAlpha(Renderer renderer, float alpha)
+{
+    Material[] mats = renderer.materials;
+    for (int i = 0; i < mats.Length; i++)
+    {
+        if (useDissolveEffect)
+        {
+            // 使用溶解效果
+            mats[i].SetFloat("_DissolveAmount", alpha);
+            mats[i].SetTexture("_DissolveTex", dissolveTexture);
+            mats[i].SetColor("_DissolveColor", dissolveColor);
+            mats[i].SetFloat("_EdgeWidth", dissolveEdgeWidth);
+        }
+        else
+        {
+            // 使用透明度效果
+            Color color = mats[i].color;
+            color.a = alpha;
+            mats[i].color = color;
+        }
+    }
+}
+```
+
+### srp处理方案
+
+在SRP项目中，处理LOD淡入淡出是通过开启Fade Mode的*Cross Fade*方式结合自定义Shader实现的。
+
+开启该模式以后，可以定义一个`LOD_FADE_CROSSFADE`变体，在片元着色器中，如果开启了该变体，就执行自定义的Clip方法。从而裁剪原来的模型。
+
+
+```glsl
+void ClipLOD (float2 positionCS, float fade) {
+	#if defined(LOD_FADE_CROSSFADE)
+		float dither = (positionCS.y % 32) / 32;;
+		clip(fade - dither);
+	#endif
+}
+
+void ShadowCasterPassFragment (Varyings input) {
+	UNITY_SETUP_INSTANCE_ID(input);
+	ClipLOD(input.positionCS.xy, unity_LODFade.x);
+
+	…
+}
+
+float4 LitPassFragment (Varyings input) : SV_TARGET {
+	UNITY_SETUP_INSTANCE_ID(input);
+	ClipLOD(input.positionCS.xy, unity_LODFade.x);
+	…
+}
+
+```
+
+
