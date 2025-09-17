@@ -130,6 +130,72 @@ for (int i = 0; i < model->nfaces(); i++){
 
 # 渲染线框
 
-如果想在游戏中给三角形渲染线框，需要
+通过几何着色器获取顶点数据以后，可以通过为顶点数据规定其所述重心坐标，从而在片元着色器中知道当前片元和顶点坐标的位置
 
-##
+## 为每个顶点添加重心坐标
+
+由于网格本身不提供重心坐标，因此需要修改输出结构体，让其能获得重心坐标数据，且该结构体必须包含`InterpolatorsVertex`。
+
+```glsl
+struct InterpolatorsGeometry {
+	InterpolatorsVertex data;
+    // 重心坐标 
+    float2 barycentricCoordinates : TEXCOORD9;
+};
+
+
+// 处理数据
+void MyGeometryProgram (
+	triangle InterpolatorsVertex i[3],
+	inout TriangleStream<InterpolatorsGeometry> stream
+) {
+	…
+
+	InterpolatorsGeometry g0, g1, g2;
+	g0.data = i[0];
+	g1.data = i[1];
+	g2.data = i[2];
+
+    // 通过重心坐标相加恒等于1来处理第三个重心坐标的值
+    g0.barycentricCoordinates = float2(1, 0);
+	g1.barycentricCoordinates = float2(0, 1);
+	g2.barycentricCoordinates = float2(0, 0);
+
+
+	stream.Append(g0);
+	stream.Append(g1);
+	stream.Append(g2);
+}
+```
+注意此时并不能让片元着色器正确插值我们的坐标，因此还需要自己编写处理方法。（此处略过）
+
+## 创建线框效果
+
+通过该方法，我们就可以获得每个片元的在三角形的重心, 通过重新改写反照率贴图的采样，就可以处理线框颜色
+
+```glsl
+float3 GetAlbedoWithWireframe (Interpolators i) {
+	float3 albedo = GetAlbedo(i);
+	float3 barys;
+
+    // 获得当前点的重心坐标
+	barys.xy = i.barycentricCoordinates;
+	barys.z = 1 - barys.x - barys.y;
+
+    // 固定线框宽度度
+    float delta = fwidth(barys);
+
+    // 缩小线框宽度
+    barys = smoothstep(deltas, 2 * deltas, barys);
+
+    // 找到当前点距离边缘的最小距离
+    float minBary = min(barys.x, min(barys.y, barys.z));
+
+    // 如果在边缘，minBary为0
+	return albedo * minBary;;
+}
+```
+
+
+
+
