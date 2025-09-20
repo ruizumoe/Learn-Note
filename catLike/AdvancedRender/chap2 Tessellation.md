@@ -142,7 +142,6 @@ pass{
 
 ```
 
-
 #### 曲面细分和GPU Instance的细节
 
 > 注意Unity原始Build-in渲染管线中不支持一个Shader同时使用GPU实例化和曲面细分。如果非要一起使用，就只能使用LOD技术，在LOD0的时候使用支持曲面细分的Shader, 其他LOD使用GPU实例化的Shader; 或者使用Graphics.DrawMeshInstancedIndirect而不使用细分曲面, 但需要手动控制GPU裁剪和LOD。
@@ -156,4 +155,4 @@ pass{
 > SRP Batcher 就像修建了一条从CPU到GPU的高速公路，让每一辆小汽车（单个Draw Call） 都能跑得非常快，不管车里坐的是谁（不同的网格/材质）。（优化Per Draw Call成本）
 
 
-##
+## 
