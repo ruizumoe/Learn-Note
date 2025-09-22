@@ -52,5 +52,66 @@
 3. 依赖视角和UV，在UV扭曲或视角极度倾斜的表面可能失效。
 
 
+# 曲面细分+表面位移的视椎体剔除
+
+细分效果虽然很出色，但其代价不菲，在视椎体外的物体不应该进行细分。
+
+曲面细分是通过修改三角形的要细分因子实现的，如果将细分因子设置为0，原始三角形就会被抛弃。因此可以通过检查视椎体范围，修改非视椎体内的三角形面片的细分因子实现。
 
 
+```glsl
+// 检查是否在视椎体外
+if (TriangleIsCulled(p0, p1, p2)) {
+    f.edge[0] = f.edge[1] = f.edge[2] = f.inside = 0;
+}
+else {
+    f.edge[0] = ...
+}
+
+```
+
+
+## 视椎体剔除
+
+视椎体是一个六面棱柱，如果一个物体在视椎体内部，那么其一定在视椎体的六个面上方，那么检查物体是否在六面体内部，就是分别检查点是否在面上方。
+
+一个平面可以通过法向量（定义其局部向上方向）加上相对于世界原点的偏移量来定义。W 分量包含偏移量。
+
+要判断点位于平面上方还是下方，可通过点积运算将该点向量投影至平面法向量。若结果为负值，则夹角大于 90°，表明该点位于平面下方。
+
+相机的实际裁剪平面通过 unity_CameraWorldClipPlanes 数组提供, 其为一个6个索引地址的数组，分别对应左、右、底、顶、近和远平面。
+
+
+```glsl
+bool TriangleIsBelowClipPlane (float3 p0, float3 p1, float3 p2) {
+	float4 plane = float4(1, 0, 0, 0);
+	return
+		dot(float4(p0, 1), plane) < 0 &&
+		dot(float4(p1, 1), plane) < 0 &&
+		dot(float4(p2, 1), plane) < 0;
+}
+
+```
+
+## 有偏剔除
+
+当原始三角形位于其视椎体外部时，会因为剔除不当出现孔洞，该问题的解决方案是在判断三角形是否位于裁剪平面下方时，将最大位移量纳入考量。可通过为 TriangleIsBelowClipPlane 添加偏置值实现：不再检查点积是否小于零，而是检查其是否低于此偏置值。
+
+```glsl
+bool TriangleIsBelowClipPlane (
+	float3 p0, float3 p1, float3 p2, int planeIndex, float bias
+) {
+	float4 plane = unity_CameraWorldClipPlanes[planeIndex];
+	return
+		dot(float4(p0, 1), plane) < bias &&
+		dot(float4(p1, 1), plane) < bias &&
+		dot(float4(p2, 1), plane) < bias;
+}
+
+```
+
+如果bias为正表示正向偏压，正向偏移会有效地将裁剪平面向上推，减小视锥体的大小。 但当三角形靠近视图边缘时，它们会过早地被裁剪掉。
+
+负向偏移则产生相反的效果，因此位于视锥体外但仍靠近视锥体的三角形不会被裁剪。
+
+在使用顶点位移时，我们必须采用负向偏移。
