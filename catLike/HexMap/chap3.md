@@ -114,6 +114,8 @@ public static Color TerraceLerp (Color a, Color b, float step)
 #endregion
 ```
 
+![梯度示意图](chap3/image.png)
+
 ### 阶梯片面绘制
 
 绘制阶梯面片要分成三部（可以优化，但此处暂时根据教程流程来）
@@ -152,3 +154,4 @@ void TriangulateEdgeTerraces(
 }
 ```
 
+![面片结果](chap3/image-1.png)
